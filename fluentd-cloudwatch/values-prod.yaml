@@ -1,0 +1,5 @@
+configmap:
+  retentiondays:
+    gateway: '400'
+    application: '400'
+    system: '14'

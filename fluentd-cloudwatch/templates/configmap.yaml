@@ -1,0 +1,124 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fluentd-cloudwatch
+  namespace: fluentd-cloudwatch
+  labels:
+    k8s-app: fluentd-cloudwatch
+data:
+  fluent.conf: |-
+    @include system.conf
+    @include source.containers.conf
+  system.conf: |-
+    # system wide configurations
+    <system>
+      log_level info
+      root_dir /tmp/fluentd-cloudwatch
+    </system>
+  source.containers.conf: |-
+    <source>
+      @type tail
+      @id in_tail_container_logs
+      path /var/log/containers/*.log
+      exclude_path ["/var/log/containers/cloudwatch-agent*", "/var/log/containers/fluentd*"]
+      pos_file /var/log/fluentd-cloudwatch/fluentd-containers.log.pos
+      tag kubernetes.*
+      read_from_head true
+      <parse>
+        @type json
+        time_format %Y-%m-%dT%H:%M:%S.%NZ
+      </parse>
+    </source>
+    <filter kubernetes.**>
+      @type kubernetes_metadata
+    </filter>
+    <match kubernetes.**>
+      @type rewrite_tag_filter
+      <rule>
+        key $.kubernetes.pod_name
+        pattern /^api-gateway-.+$/
+        tag gateway
+      </rule>
+      <rule>
+        key $.kubernetes.namespace_name
+        pattern /(dev|test|qual|prod)/
+        tag application
+      </rule>
+      <rule>
+        key $.kubernetes.namespace_name
+        pattern /(dev|test|qual|prod)/
+        invert true
+        tag system
+      </rule>
+    </match>
+    <filter gateway>
+      @type record_transformer
+      enable_ruby true
+      <record>
+        group /airnz/aws/internal-cluster/gateway
+        stream ${record['kubernetes']['namespace_name']}/${record['kubernetes']['pod_name']}
+        retention_days #{ENV.fetch('GATEWAY_RETENTION_DAYS')}
+      </record>
+    </filter>
+    <filter application>
+      @type record_transformer
+      enable_ruby true
+      <record>
+        group /airnz/aws/internal-cluster/application
+        stream ${record['kubernetes']['namespace_name']}/${record['kubernetes']['pod_name']}
+        retention_days #{ENV.fetch('APPLICATION_RETENTION_DAYS')}
+      </record>
+    </filter>
+    <filter system>
+      @type record_transformer
+      enable_ruby true
+      <record>
+        group /airnz/aws/internal-cluster/system
+        stream ${record['kubernetes']['namespace_name']}/${record['kubernetes']['pod_name']}
+        retention_days "#{ENV.fetch('SYSTEM_RETENTION_DAYS')}"
+      </record>
+    </filter>
+    <filter **>
+      @type concat
+      key log
+      multiline_start_regexp /^[0-9]{4}-[0-9]{2}-[0-9]{2}|^\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b|^[0-9]{4}\/[0-9]{2}\/[0-9]{2}|^[0-9]{4}-[0-9]{2}-[0-9]{2}|^\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b|^[0-9]{4}\/[0-9]{2}\/[0-9]{2}|^EVENT_LOG_ACTIVITY/
+      separator ""
+      flush_interval 1s
+      timeout_label @NORMAL
+    </filter>
+    <match **>
+      @type relabel
+      @label @NORMAL
+    </match>
+    <label @NORMAL>
+      <match **>
+        @type cloudwatch_logs
+        region ap-southeast-2
+        message_keys log
+        retention_in_days_key retention_days
+        log_group_name_key group
+        log_stream_name_key stream
+        remove_log_group_name_key true
+        remove_log_stream_name_key true
+        remove_retention_in_days_key true
+        auto_create_stream true
+        max_message_length 262118
+        <buffer stream>
+          @type file
+          path /tmp/fluentd-cloudwatch/buffer
+          total_limit_size 16GB
+          flush_interval 30s
+        </buffer>
+      </match>
+    </label>
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: log-retention
+  namespace: fluentd-cloudwatch
+data:
+  logs.gateway.retention.days: .Values.configmap.retentiondays.gateway
+  logs.application.retention.days: .Values.configmap.retentiondays.application
+  logs.system.retention.days: .Values.configmap.retentiondays.system

@@ -1,0 +1,13 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: fluentd-cloudwatch-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: fluentd-cloudwatch
+subjects:
+  - kind: ServiceAccount
+    name: fluentd-cloudwatch
+    namespace: fluentd-cloudwatch
