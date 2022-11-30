@@ -11,16 +11,9 @@ rules:
     resources:
       - pods
       - namespaces
+      - pods/logs
     verbs:
       - get
       - list
       - watch
-  - apiGroups:
-      - policy
-    resourceNames:
-      - {{ include "fluentd.fullname" . }}
-    resources:
-      - podsecuritypolicies
-    verbs:
-      - use
 {{- end -}}
